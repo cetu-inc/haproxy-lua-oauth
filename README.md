@@ -50,6 +50,19 @@ with a space and surround it with double quotes:
 setenv OAUTH_AUDIENCE "https://api.mywebsite.com https://api2.mywebsite.com"
 ```
 
+## Support for multiple keys
+
+This library support specifying multiple keys values in the JWT token. They should be specified as a JSON array of strings.
+You can also accept multiple audience values in the `OAUTH_KID` and `OAUTH_PUBKEY_PATH` environment variables in the **haproxy.cfg** file. Separate each value
+with a space and surround it with double quotes:
+
+```
+setenv OAUTH_PUBKEY_PATH "/etc/haproxy/pem/pubkey.pem /etc/haproxy/pem/pubkey2.pem"
+setenv OAUTH_KID "key1 key2"
+```
+
+Make sure that the order of the paths to the keys matches the index of the relevant identifier.
+
 ## Output variables
 
 After calling `http-request lua.jwtverify`, you get access to variables for each of the claims in the token.
@@ -74,16 +87,16 @@ Try it out using the Docker Compose.
    | permission  | description           |
    |-------------|-----------------------|
    | read:myapp  | Read access to my app |
-   | write:myapp | Write access to myapp | 
+   | write:myapp | Write access to myapp |
 
 1. Now that you have an API defined in Auth0, add an application that is allowed to authenticate to it. Go to the "Applications" tab and add a new "Machine to Machine Application" and select the API you just created. Give it the "read:myapp" and "write:myapp"permissions (or only one or the other).
 1. On the Settings page for the new application, go to **Advanced Settings > Certificates** and download the certificate in PEM format. HAProxy will validate the access tokens against this certificate, which was signed by the OAuth provider, Auth0.
 
 1. Convert it first using `openssl x509 -pubkey -noout -in ./mycert.pem > pubkey.pem` and save **pubkey.pem** to **/example/haproxy/pem/pubkey.pem**.
-1. Edit **example/haproxy/haproxy.cfg**: 
+1. Edit **example/haproxy/haproxy.cfg**:
 
-   * replace the `OAUTH_ISSUER` variable in the global section with the Auth0 domain URL with your own, such as https://myaccount.auth0.com/. 
-   * replace the `OAUTH_AUDIENCE` variable with your API name in Auth0, such as "https://api.mywebsite.com". 
+   * replace the `OAUTH_ISSUER` variable in the global section with the Auth0 domain URL with your own, such as https://myaccount.auth0.com/.
+   * replace the `OAUTH_AUDIENCE` variable with your API name in Auth0, such as "https://api.mywebsite.com".
    * replace the `OAUTH_PUBKEY_PATH` variable with the path to your PEM certificate. (also update the docker-compose file)
 
 1. Create the environment with Docker Compose:
