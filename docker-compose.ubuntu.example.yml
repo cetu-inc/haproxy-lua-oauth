@@ -17,7 +17,9 @@ services:
     volumes:
        - ./example/haproxy/haproxy.cfg:/etc/haproxy/haproxy.cfg
        - ./example/haproxy/pem/pubkey.pem:/etc/haproxy/pem/pubkey.pem
+       - ./example/haproxy/pem/pubkey2.pem:/etc/haproxy/pem/pubkey2.pem
        - ./example/haproxy/pem/test.com.pem:/etc/haproxy/pem/test.com.pem
+       - ./lib/jwtverify.lua:/usr/local/share/lua/5.4/jwtverify.lua
     ports:
     - "80:80"
     - "443:443"

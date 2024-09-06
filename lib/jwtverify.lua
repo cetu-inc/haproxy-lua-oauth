@@ -25,6 +25,7 @@ if not config then
   config = {
       debug = true,
       publicKey = nil,
+      kid = nil,
       issuer = nil,
       audience = nil,
       hmacSecret = nil
@@ -130,7 +131,23 @@ local function algorithmIsValid(token)
   return true
 end
 
-local function rs256SignatureIsValid(token, publicKey)
+local function rs256SignatureIsValid(token, keys, kids)
+  -- Check if a kid if provided, if so verify it exists in the kids array
+  local token_kid = token.headerdecoded.kid
+  local publicKey
+  if kids ~= nil then
+    if not contains(kids, token_kid) then
+      log("The kid provided in the token (" .. token_kid .. ") does not match the kid provided in the configuration.")
+      return false
+    end
+
+    -- get the key from the keys list at the index of the correct kid
+    publicKey = keys[token_kid]
+  else
+    -- if no kid is provided, use the first key in the list
+    publicKey = keys[next(keys)]
+  end
+
   local digest = openssl.digest.new('SHA256')
   digest:update(token.header .. '.' .. token.payload)
   local vkey = openssl.pkey.new(publicKey)
@@ -160,10 +177,10 @@ end
 
 -- Checks if the audience in the token is listed in the
 -- OAUTH_AUDIENCE environment variable. Both the token audience
--- and the environment variable can contain multiple audience values, 
+-- and the environment variable can contain multiple audience values,
 -- separated by commas. Each value will be checked.
 local function audienceIsValid(token, expectedAudienceParam)
-  
+
   -- Convert OAUTH_AUDIENCE environment variable to a table,
   -- even if it contains only one value
   local expectedAudiences = expectedAudienceParam
@@ -172,8 +189,14 @@ local function audienceIsValid(token, expectedAudienceParam)
     expectedAudiences = core.tokenize(expectedAudienceParam, " ")
   end
 
-  -- Convert 'aud' claim to a table, even if it contains only one value
   local receivedAudiences = token.payloaddecoded.aud
+
+  -- Check if 'aud' exists and handle cases where it's missing
+  if receivedAudiences == nil then
+    return false
+  end
+
+  -- Convert 'aud' claim to a table, even if it contains only one value
   if type(token.payloaddecoded.aud) == "string" then
     receivedAudiences ={}
     receivedAudiences[1] = token.payloaddecoded.aud
@@ -195,7 +218,8 @@ local function setVariablesFromPayload(txn, decodedPayload)
 end
 
 local function jwtverify(txn)
-  local pem = config.publicKey
+  local keys = config.publicKeys
+  local kid = config.kid
   local issuer = config.issuer
   local audience = config.audience
   local hmacSecret = config.hmacSecret
@@ -219,7 +243,7 @@ local function jwtverify(txn)
 
   -- 3. Verify the signature with the certificate
   if token.headerdecoded.alg == 'RS256' then
-    if rs256SignatureIsValid(token, pem) == false then
+    if rs256SignatureIsValid(token, keys, kid) == false then
       log("Signature not valid.")
       goto out
     end
@@ -271,18 +295,44 @@ end
 core.register_init(function()
   config.issuer = os.getenv("OAUTH_ISSUER")
   config.audience = os.getenv("OAUTH_AUDIENCE")
-  
-  -- when using an RS256 signature
-  local publicKeyPath = os.getenv("OAUTH_PUBKEY_PATH") 
-  if publicKeyPath ~= nil then
-    local pem = readAll(publicKeyPath)
-    config.publicKey = pem
+
+  -- when using multiple keys, parse the kid list
+  local kid = os.getenv("OAUTH_KID")
+  if kid ~= nil then
+    config.kid = core.tokenize(kid, " ")
   end
-  
+
+  -- when using an RS256 signature
+  local publicKeyPath = os.getenv("OAUTH_PUBKEY_PATH")
+  if publicKeyPath ~= nil then
+    -- tokenize the path in case multiple keys are provided
+    keyPaths = core.tokenize(publicKeyPath, " ")
+
+    -- Check if there is more than one file path then we must have kid identifiers
+    if #keyPaths > 1 and config.kid == nil then
+      log("Multiple public keys provided but no key identifiers.")
+      return
+    end
+
+    -- Make sure that the kid size matches the keyPaths size
+    if config.kid ~= nil and #config.kid ~= #keyPaths then
+      log("The number of keys does not match the number of key identifiers.")
+      return
+    end
+
+    -- Read all the keys and store them in the config
+    config.publicKeys = {}
+    for i, keyPath in ipairs(keyPaths) do
+      local pem = readAll(keyPath)
+      config.publicKeys[config.kid[i]] = pem
+    end
+  end
+
   -- when using an HS256 or HS512 signature
   config.hmacSecret = os.getenv("OAUTH_HMAC_SECRET")
-  
+
   log("PublicKeyPath: " .. (publicKeyPath or "<none>"))
+  log("KeyIdentifiers: " .. (kid or "<none>"))
   log("Issuer: " .. (config.issuer or "<none>"))
   log("Audience: " .. (config.audience or "<none>"))
 end)
